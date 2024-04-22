@@ -1,0 +1,6 @@
+files: 
+  - test-cwl-files/cat.cwl
+  - test-cwl-files/cat_io.yml
+
+stdout: stdout.txt
+stderr: stderr.txt
