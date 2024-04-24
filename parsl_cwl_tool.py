@@ -1,62 +1,88 @@
 """Module to represent a command line tool for CWLApp."""
 
+import ast
 import sys
 
 import parsl
 import yaml
 from parsl.configs.local_threads import config
 
-from cwl import CWLApp
+from cwl import CWLApp, ArgumentMissing
 
 parsl.load(config)
+
+
+class InvalidArgumentError(Exception):
+    """Exception to raise when invalid arguments are passed to the script."""
+
+    def __init__(self, message):
+        print("INVALID ARGUMENTS\n")
+        super().__init__(message)
 
 
 class ParslCWLTool:
     """Class to represent a command line tool for CWLApp."""
 
-    def __init__(self, *args):
-        if not args[1].endswith(".cwl"):
-            raise ValueError(f"Invalid CWL file: {args[1]}")
+    def __init__(self, *cwl_args):
+        if not cwl_args[1].endswith(".cwl"):
+            raise ValueError(f"Invalid CWL file: {cwl_args[1]}")
 
-        self.cwl_app = CWLApp(args[1])
-        self.app_future = self.run(args)
+        self.cwl_app = CWLApp(cwl_args[1])
+        self.app_future = self.run(cwl_args)
 
-    def run(self, args: list[str]):
+    def run(self, cwl_args: list[str]):
+        """Run the CWLApp with the given inputs and outputs."""
         cwl_inputs_outputs = {}
 
-        if len(args) == 3 and args[2].endswith(".yml"):
-            with open(args[2], "r") as f:
-                cwl_inputs_outputs = yaml.safe_load(f)
+        try:
+            if len(cwl_args) == 3 and cwl_args[2].endswith(".yml"):
+                with open(cwl_args[2], "r", encoding="utf-8") as f:
+                    cwl_inputs_outputs = yaml.safe_load(f)
 
-        else:
-            for arg in args[2:]:
-                key, value = arg.split("=")
-                cwl_inputs_outputs[key.lstrip("--")] = (
-                    value if not (value.startswith("[") and value.endswith("]")) else eval(value)
-                )
+            else:
+                for arg in cwl_args[2:]:
+                    key, value = arg.split("=")
+                    cwl_inputs_outputs[key.lstrip("--")] = (
+                        ast.literal_eval(value)
+                        if value.startswith("[") and value.endswith("]")
+                        else value
+                    )
 
-        app_future = self.cwl_app(**cwl_inputs_outputs)
-        return app_future
+        except ArgumentMissing as e:
+            raise InvalidArgumentError(str(e)) from e
+
+        except Exception as e:
+            raise InvalidArgumentError(str(e)) from e
+
+        return self.cwl_app(**cwl_inputs_outputs)
 
     def result(self):
+        """Print the result of running the CWL with given inputs and outputs
+        using CWLApp."""
         try:
             self.app_future.result()
 
             if self.app_future.stdout:
                 print("STDOUT:")
-                with open(self.app_future.stdout, "r") as f:
+                with open(self.app_future.stdout, "r", encoding="utf-8") as f:
                     print(f.read())
 
-        except:
+        except Exception:
             if self.app_future.stderr:
                 print("STDERR:")
-                with open(self.app_future.stderr, "r") as f:
+                with open(self.app_future.stderr, "r", encoding="utf-8") as f:
                     print(f.read())
 
 
 if __name__ == "__main__":
+    USAGE = (
+        "Usage: python parsl_cwl_tool.py <CWL_FILE> \
+            --<Input1>=<Value1> --<Input2>=<Value2> ...--stdout=<Value3> ...\n"
+        "or\n"
+        "Usage: python parsl_cwl_tool.py <CWL_FILE> <YAML_FILE>"
+    )
     if len(sys.argv) < 3:
-        raise ValueError("Invalid arguments")
+        raise InvalidArgumentError(USAGE)
 
     args = sys.argv
     parsl_cwl_tool = ParslCWLTool(*args)
